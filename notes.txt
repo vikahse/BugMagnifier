@@ -1,0 +1,64 @@
+        
+
+
+
+
+
+        // const stepByStepResults : BlockchainTransaction[] = []
+
+        // for await (const tx of iter) {
+        //     stepByStepResults.push(tx)
+
+        //     // break;
+        // }
+
+        // expect(stepByStepResults.length).toEqual(sentMessageResult_1.transactions.length)
+
+        // console.log(stepByStepResults[0].vmLogs)
+        // console.log(stepByStepResults[1].vmLogs)
+        // console.log("--------")
+        // console.log(sentMessageResult_1.transactions[0].vmLogs)
+        // console.log(sentMessageResult_1.transactions[1].vmLogs)
+        // for(let i = 0; i < sentMessageResult_1.transactions.length; i++) {
+        //     expect(compareTransaction(flattenTransaction(sentMessageResult_1.transactions[i]), flattenTransaction(stepByStepResults[i]))).toBe(true)
+        // }
+
+
+        // expect(sentMessageResult_1.transactions).toHaveTransaction({
+        //     from: senderWallet_1.address,
+        //     to: myContract.address,
+        //     success: true,
+        // });
+        
+        // expect(sentMessageResult_2.transactions).toHaveTransaction({
+        //     from: senderWallet_2.address,
+        //     to: myContract.address,
+        //     success: true,
+        // });
+
+        // // console.log(result.transactions.length);
+        // // console.log(sentMessageResult_1.transactions[1].events);
+        // const data = await myContract.getData();
+        
+        // console.log(data.recent_sender.toString());
+        // expect(data.recent_sender.toString()).toBe(senderWallet_1.address.toString());
+
+                // у нас есть экземпляр смарт-контракта, 
+        // с которым мы можем взаимодействовать разными способами, как и с реальным контрактом, 
+        // чтобы протестировать ожидаемое поведение
+        // const myContract = blockchain.openContract(
+        //     await MainContract.createFromConfig({}, codeCell)
+        // );
+
+                // наше первоначальное состояние
+                // const snapshot = blockchain.snapshot();
+                        // // отправляем внутреннее сообщение контракту 
+        // const sentMessageResult_1 = await myContract.sendInternalMessage(
+        //     senderWallet_1.getSender(),
+        //     toNano("0.05")
+        // );
+
+                // // можем вернуть первоначальное состояние
+        // await blockchain.loadFrom(snapshot);
+                // const firstResult = await iter_1.next()
+        // console.log("First tx:", firstResult.value)
