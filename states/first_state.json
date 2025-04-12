@@ -1,0 +1,13 @@
+{
+  "balance": "1099088800",
+  "extracurrency": {},
+  "last": {
+    "lt": "4000000",
+    "hash": "a4235ac54aa21c321cbfa7a00e110ec13201d4461158992c2549ffe51525054f"
+  },
+  "state": {
+    "type": "active",
+    "code": "b5ee9c72410104010030000114ff00f4a413f4bcf2c80b0102016202030022d03031d0d30331fa4030c801cf16c9ed540011a049b3da89a1f480612f6c9bdd",
+    "data": "b5ee9c7241010101002400004380189e90e13f4c49542a956aaf55b1eaa65bc9351032dbc997584efaf7e5e13015d0ec5dea27"
+  }
+}
