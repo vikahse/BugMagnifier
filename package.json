@@ -25,7 +25,8 @@
     "compile": "ts-node ./scripts/compile.ts",
     "test": "yarn compile && yarn jest",
     "deploy": "yarn compile && ts-node ./scripts/deploy.ts",
-    "onchaintest": "ts-node ./scripts/onchaintest.ts"
+    "onchaintest": "ts-node ./scripts/onchaintest.ts",
+    "tondebug": "ts-node ./tondebug/tondebug.ts"
   },
   "devDependencies": {
     "@ton/test-utils": "^0.5.0",
