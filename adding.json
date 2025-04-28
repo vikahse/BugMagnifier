@@ -1,0 +1,9 @@
+[
+    {
+        "id": 1,
+        "type": "internal",
+        "body": "te6ccgEBAQEAAgAAAHsiYWN0aW9uIjogImRlcG9zaXQiLCJhbW91bnQiOiAxMDB9",
+        "value": { "coins": "100000000" },
+        "name": "Small deposit"
+    }
+]
