@@ -561,7 +561,6 @@ class TONDebugConsole {
 
   // добавить сообщения из JSON file
   private async addMessages(path: string): Promise<void> {
-    console.log("cacapath:", path);
     if (!fs.existsSync(path)) {
       console.log(`File not found: ${path}`);
       return;
@@ -634,7 +633,7 @@ class TONDebugConsole {
 
 // Компиляция контракта
 async function compileContract(contractPath: string): Promise<Cell> {
-  console.log("cacapath:", contractPath);
+  
   const compileResult = await compileFunc({
     targets: [contractPath],
     sources: (x) => fs.readFileSync(x).toString("utf8"),
@@ -673,9 +672,7 @@ async function compileContract(contractPath: string): Promise<Cell> {
 
 // Начальное состояние
 async function validateInitState(path: string): Promise<ContractState> {
-  console.log("caca detected:", path.toString());
   const state = JSON.parse(fs.readFileSync(path, 'utf-8'));
-  console.log("caca detected");
 
   const validFields = ['balance', 'code', 'data'];
   const invalidFields = Object.keys(state).filter(
@@ -689,20 +686,16 @@ async function validateInitState(path: string): Promise<ContractState> {
   if (!state.balance && !state.code && !state.data) {
     throw new Error('State file must contain at least one of: balance, code, data');
   } 
-  console.log("caca detected");
   const resultState: ContractState = {};
   if (state.balance) {
       resultState.balance = BigInt(state.balance);
   }
-  console.log("caca detected");
   if (state.code) {
       resultState.code = Cell.fromBoc(Buffer.from(state.code, "hex"))[0];
   }
-  console.log("caca detected");
   if (state.data) {
       resultState.data = Cell.fromBoc(Buffer.from(state.data, "base64"))[0];
   }
-  console.log("caca detected");
   return resultState;
 }
 
@@ -712,13 +705,10 @@ async function loadMessageQueue(path: string): Promise<Message[]> {
   if (!fs.existsSync(path)) {
       throw new Error(`Queue file not found: ${path}`);
   }
-  console.log("caca");
   const messages = JSON.parse(fs.readFileSync(path, 'utf-8'));
-  console.log("caca");
   if (!Array.isArray(messages)) {
       throw new Error('Queue file must contain an array of messages');
   }
-  console.log("caca");
   const res =  messages.map((msg, i) => ({
       id: msg.id || i + 1,
       type: msg.type || 'external',
@@ -727,7 +717,6 @@ async function loadMessageQueue(path: string): Promise<Message[]> {
       value: msg.value,
       name: msg.name
   }));
-  console.log("caca");
   return res;
 }
 
@@ -781,7 +770,6 @@ async function main() {
         const queuePath = args[queueIndex + 1];
         options.initialQueue = await loadMessageQueue(queuePath);
     }
-    console.log("caca");
 
     // Создаём консоль дебага
     const debugConsole = new TONDebugConsole(options, codeCell);
