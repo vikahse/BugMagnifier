@@ -1,4 +1,4 @@
-import type { Message } from './tondebug.ts';
+import type { Message } from '../tondebug/tondebug.js';
 
 const typePriority: Record<Message['type'], number> = {
   'external-in':    0,

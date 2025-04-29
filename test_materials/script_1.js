@@ -1,5 +1,5 @@
 /**
- * @param {import('./tondebug.ts').Message[]} queue
+ * @param {import('../tondebug/tondebug.ts').Message[]} queue
  */
 export function modifyQueue(queue) {
     for (let i = queue.length - 1; i > 0; i--) {
