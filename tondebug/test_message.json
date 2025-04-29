@@ -1,0 +1,29 @@
+[
+    {
+        "id": 1,
+        "type": "internal",
+        "name": "first test",
+        "value": {
+            "coins": "1000000000",
+            "extraCurrencies": null
+        }
+    },
+    {
+        "id": 2,
+        "type": "external-in",
+        "name": "second test",
+        "value": {
+            "coins": "1000000001",
+            "extraCurrencies": null
+        }
+    },
+    {
+        "id": 3,
+        "type": "external-out",
+        "name": "third test",
+        "value": {
+            "coins": "1000000002",
+            "extraCurrencies": null
+        }
+    }
+]
