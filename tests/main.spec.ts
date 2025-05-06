@@ -1,341 +1,305 @@
-import { Cell, Address, toNano, beginCell, SendMode, ContractState } from "@ton/core";
+import * as fs from "fs";
+import { Cell, toNano } from "@ton/core";
 import { hex } from "../build/main.compiled.json";
-import { Blockchain, BlockchainTransaction, internal, PendingMessage, createShardAccount, BlockchainContractProvider} from "@ton/sandbox";
 import { MainContract } from "../wrappers/MainContract";
-import {randomAddress} from "@ton/test-utils";
-import { writeFileSync, readFileSync } from 'fs';
-
+import "@ton/test-utils";
+// We need to additionally import SandboxContract and TreasuryContract
+import { Blockchain, SandboxContract, TreasuryContract } from "@ton/sandbox";
+import { compile } from "@ton/blueprint";
 describe("main.fc contract tests", () => {
+  let blockchain: Blockchain;
+  let myContract: SandboxContract<MainContract>;
+  let initWallet: SandboxContract<TreasuryContract>;
+  let ownerWallet: SandboxContract<TreasuryContract>;
+  let codeCell: Cell;
 
-    it("reverse queue of messages and get method will return first wallet address", async () => {
-        const blockchain = await Blockchain.create();
-        const codeCell = Cell.fromBoc(Buffer.from(hex, "hex"))[0];
-        
-        const testContractAddress = randomAddress()
+  beforeAll(async () => {
+    codeCell = await compile("MainContract");
+  });
 
-        await blockchain.setShardAccount(testContractAddress, createShardAccount({
-            address: testContractAddress,
-            code: codeCell,
-            data: new Cell(),
-            balance: toNano('1'),
-        }))
+  beforeEach(async () => {
+    blockchain = await Blockchain.create();
+    initWallet = await blockchain.treasury("initWallet");
+    ownerWallet = await blockchain.treasury("ownerWallet");
 
-        // const contractProvider = blockchain.provider(address, init);
-        // init - initial state of contract
-        const provider = blockchain.provider(testContractAddress);
+    myContract = blockchain.openContract(
+      await MainContract.createFromConfig(
+        {
+          number: 0,
+          address: initWallet.address,
+          owner_address: ownerWallet.address,
+        },
+        codeCell
+      )
+    );
+  });
 
-        const senderWallet_1 = await blockchain.treasury("sender_1");
-        const senderWallet_2 = await blockchain.treasury("sender_2");
-        
-        console.log("Contract address:", testContractAddress);
-        console.log("Wallet1 address:", senderWallet_1.address);
-        console.log("Wallet2 address:", senderWallet_2.address);
-        
-        const testMsg_1 = internal({
-            from: senderWallet_1.address,
-            to: testContractAddress,
-            value: toNano('0.05'),
-            body: beginCell().endCell(),
-        });
-        
-        const testMsg_2 = internal({
-            from: senderWallet_2.address,
-            to: testContractAddress,
-            value: toNano('0.05'),
-            body: beginCell().endCell(),
-        });
+  it("should get the proper most recent sender address", async () => {
+    const senderWallet = await blockchain.treasury("sender");
 
-        // sendMessageIter не исполняет сообщения сам по себе, он просто готовит цепочку исполнения и ждет наших команд
-        const iter = await blockchain.sendMessageIter(testMsg_1);
-        await blockchain.sendMessageIter(testMsg_2);
-        
-        // способ работы со множеством ожидающих сообщений 
-        const messageQueue: PendingMessage[] = (blockchain as any).messageQueue;
-        console.log("Pending messages queue:", messageQueue);
-        
-        // перевернем очередь (потом через скрипты можно как угодно управлять порядком)
-        messageQueue.reverse()
+    const sentMessageResult = await myContract.sendIncrement(
+      senderWallet.getSender(),
+      toNano("0.05"),
+      1
+    );
 
-        const messageQueueReversed: PendingMessage[] = (blockchain as any).messageQueue;
-        console.log("Pending reversed messages queue:", messageQueueReversed);
-        
-        const stepByStepResults : BlockchainTransaction[] = []
-
-        // здесь поэтапно исполняем транзакции, то есть достаем сообщение из очереди
-        // и исполняем его, если в результате исполняемого сообщения создается новое подсообщение,
-        // то так же кладем его в очередь (TODO: протестировать на всякий случай этот кейс)
-        // итерирование продолжается, пока очередь не опустеет 
-        let step = 0;
-        for await (const tx of iter) {
-            stepByStepResults.push(tx)
-            // здесь при исполнении очередной транзакции можем прерывать и возобновлять исполнение
-            // break; - можно прекратить исполнение после N транзакций или по какому-то условию
-            
-            // так можно смотреть какое сообщение исполнилось
-            const msg = tx.inMessage;
-            console.log("Step", step, "processed message:", msg);
-            step++;
-            
-            // если после первой итерации сделать break, то в очереди останется второе необработанное сообщение 
-            // if (step == 1) {
-            //     break;
-            // }
-        }
-        
-        console.log("Transactions length:", stepByStepResults.length);
-       
-        const data = await blockchain.runGetMethod(testContractAddress, 'get_the_latest_sender', []);
-        const lastSender = data.stackReader.readAddress();
-        console.log("Last sender address:", lastSender.toString());
-
-        expect(lastSender.toString()).toBe(senderWallet_1.address.toString());
-
-        const finalState = provider.getState();
-        console.log("Contract balance:", (await finalState).balance);
-        // дополнительные валюты (например, jettons), которые могут храниться на контракте
-        console.log("Extracurrency:", (await finalState).extracurrency);
-        console.log("Contract last transaction:", (await finalState).last);
-        console.log("Contract state:", (await finalState).state);
-    });
-    
-    it("compare contract states depends on message queue ordering", async () => {
-        const blockchain = await Blockchain.create();
-        const codeCell = Cell.fromBoc(Buffer.from(hex, "hex"))[0];
-        
-        const testContractAddress = randomAddress()
-
-        await blockchain.setShardAccount(testContractAddress, createShardAccount({
-            address: testContractAddress,
-            code: codeCell,
-            data: new Cell(),
-            balance: toNano('1'),
-        }))
-
-        // сохраняем изначальный стейт
-        const snapshot = blockchain.snapshot();
-
-        const provider = blockchain.provider(testContractAddress);
-
-        const senderWallet_1 = await blockchain.treasury("sender_1");
-        const senderWallet_2 = await blockchain.treasury("sender_2");
-        
-        console.log("Contract address:", testContractAddress);
-        console.log("Wallet1 address:", senderWallet_1.address);
-        console.log("Wallet2 address:", senderWallet_2.address);
-        
-        const testMsg_1 = internal({
-            from: senderWallet_1.address,
-            to: testContractAddress,
-            value: toNano('0.05'),
-            body: beginCell().endCell(),
-        });
-        
-        const testMsg_2 = internal({
-            from: senderWallet_2.address,
-            to: testContractAddress,
-            value: toNano('0.05'),
-            body: beginCell().endCell(),
-        });
-
-        const iter = await blockchain.sendMessageIter(testMsg_1);
-        await blockchain.sendMessageIter(testMsg_2);
-        
-        const messageQueue: PendingMessage[] = (blockchain as any).messageQueue;
-        console.log("Pending messages queue:", messageQueue);
-        
-        messageQueue.reverse()
-
-        const messageQueueReversed: PendingMessage[] = (blockchain as any).messageQueue;
-        console.log("Pending reversed messages queue:", messageQueueReversed);
-        
-        const stepByStepResults : BlockchainTransaction[] = []
-
-        let step = 0;
-        for await (const tx of iter) {
-            stepByStepResults.push(tx)
-
-            const msg = tx.inMessage;
-            console.log("Step", step, "processed message:", msg);
-            step++;
-        }
-        
-        console.log("Transactions length:", stepByStepResults.length);
-        console.log("Transactions:", stepByStepResults);
-
-        const data = await blockchain.runGetMethod(testContractAddress, 'get_the_latest_sender', []);
-        const lastSender = data.stackReader.readAddress();
-        console.log("Last sender address:", lastSender.toString());
-
-        expect(lastSender.toString()).toBe(senderWallet_1.address.toString());
-
-        const firstFinalState = provider.getState();
-        await saveContractState('states/first_state.json', firstFinalState);
-
-        // загружаем изначальный стейт до отправки и исполнения сообщений
-        await blockchain.loadFrom(snapshot);
-
-        const iter2 = await blockchain.sendMessageIter(testMsg_1);
-        await blockchain.sendMessageIter(testMsg_2);
-        
-        // теперь не будем менять порядок сообщений
-        const messageQueue2: PendingMessage[] = (blockchain as any).messageQueue;
-        console.log("Pending messages queue:", messageQueue2);
-
-        const stepByStepResults2 : BlockchainTransaction[] = []
-        step = 0;
-        for await (const tx of iter2) {
-            stepByStepResults2.push(tx);
-
-            const msg = tx.inMessage;
-            console.log("Step", step, "processed message:", msg);
-            step++;
-        }
-
-        console.log("Transactions length:", stepByStepResults2.length);
-        console.log("Transactions:", stepByStepResults2);
-
-        const data2 = await blockchain.runGetMethod(testContractAddress, 'get_the_latest_sender', []);
-        const lastSender2 = data2.stackReader.readAddress();
-        console.log("Last sender address:", lastSender2.toString());
-
-        // ожидаем теперь, что сохраянили адрес второго кошелька
-        expect(lastSender2.toString()).toBe(senderWallet_2.address.toString());
-
-        const secondFinalState = provider.getState();
-        await saveContractState('states/second_state.json', secondFinalState);
-
-        compareContractStates('states/first_state.json', 'states/second_state.json');
+    expect(sentMessageResult.transactions).toHaveTransaction({
+      from: senderWallet.address,
+      to: myContract.address,
+      success: true,
     });
 
-    it("set initial contract state", async () => {
-        const blockchain = await Blockchain.create();
+    const data = await myContract.getData();
 
-        const stateJson = JSON.parse(readFileSync('states/first_state.json', 'utf-8'));
+    expect(data.recent_sender.toString()).toBe(senderWallet.address.toString());
+    expect(data.number).toEqual(1);
+  });
+  it("successfully deposits funds", async () => {
+    const senderWallet = await blockchain.treasury("sender");
 
-        // загружаем из файла первоначальное состояние конракта
-        const initialState = {
-            balance: BigInt(stateJson.balance),
-            code: Cell.fromBoc(Buffer.from(stateJson.state.code, 'hex'))[0],
-            data: Cell.fromBoc(Buffer.from(stateJson.state.data, 'hex'))[0],
-            last: stateJson.last ? {
-                lt: BigInt(stateJson.last.lt),
-                hash: Buffer.from(stateJson.last.hash, 'hex')
-            } : null
-        };
-        
-        const testContractAddress = randomAddress()
+    const depositMessageResult = await myContract.sendDeposit(
+      senderWallet.getSender(),
+      toNano("5")
+    );
 
-        await blockchain.setShardAccount(testContractAddress, createShardAccount({
-            address: testContractAddress,
-            code: initialState.code,
-            data: initialState.data,
-            balance: initialState.balance,
-        }))
-
-        const data = await blockchain.runGetMethod(testContractAddress, 'get_the_latest_sender', []);
-        const lastSender = data.stackReader.readAddress();
-        console.log("Last sender address:", lastSender.toString());
-
-        // так как в файле first_state было состояние контракта с переворнутой очередью, то проверяем
-        // что у нас сохранен адрес первого кошелька
-        expect(lastSender.toString()).toBe('EQDE9IcJ-mJKoVSrVXqtj1Uy3kmogZbeTLrCd9e_LwmAruq6');
+    expect(depositMessageResult.transactions).toHaveTransaction({
+      from: senderWallet.address,
+      to: myContract.address,
+      success: true,
     });
 
-    it("test race condition", async () => {
-        const bodyB64 = beginCell()
-            .storeUint(2, 32)                 
-            .endCell();
-        console.log(bodyB64.toBoc({ idx: false, crc32: false }).toString("base64"));
-        console.log(bodyB64);
+    const balanceRequest = await myContract.getBalance();
+
+    expect(balanceRequest.number).toBeGreaterThan(toNano("4.99"));
+  });
+  it("should return funds as no command is sent", async () => {
+    const senderWallet = await blockchain.treasury("sender");
+
+    const depositMessageResult = await myContract.sendNoCodeDeposit(
+      senderWallet.getSender(),
+      toNano("5")
+    );
+
+    expect(depositMessageResult.transactions).toHaveTransaction({
+      from: myContract.address,
+      to: senderWallet.address,
+      success: true,
+    });
+
+    const balanceRequest = await myContract.getBalance();
+
+    expect(balanceRequest.number).toBe(0);
+  });
+  it("successfully withdraws funds on behalf of owner", async () => {
+    const senderWallet = await blockchain.treasury("sender");
+
+    const deposit = await myContract.sendDeposit(senderWallet.getSender(), toNano("5"));
+    const hexArtifact = "adding.json";
+  
+    fs.promises.appendFile(
+      hexArtifact,
+      JSON.stringify([{
+        id: 0,
+        type: "internal",
+        body: deposit.result.body?.toString(),
+        value: deposit.result.value.toString(),
+        name: "Deposit"
+      }], null, 2)
+    );
+
+    const withdrawalRequestResult = await myContract.sendWithdrawalRequest(
+      ownerWallet.getSender(),
+      toNano("0.05"),
+      toNano("1")
+    );
+
+    expect(withdrawalRequestResult.transactions).toHaveTransaction({
+      from: myContract.address,
+      to: ownerWallet.address,
+      success: true,
+      value: toNano(1),
     });
   });
 
-async function saveContractState(filename: string, state: Promise<ContractState>) {
-    const resolvedState = state instanceof Promise ? await state : state;
+  it("fails to withdraw funds on behalf of not-owner", async () => {
+    const senderWallet = await blockchain.treasury("sender");
 
-    const serializableState = {
-        balance: resolvedState.balance.toString(),
-        extracurrency: resolvedState.extracurrency ? {
-            ...resolvedState.extracurrency,
-        } : null,
-        last: resolvedState.last ? {
-            lt: resolvedState.last.lt.toString(),
-            hash: resolvedState.last.hash.toString('hex')
-        } : null,
-        state: (() => {
-            switch (resolvedState.state.type) {
-                case 'active':
-                    return {
-                        type: 'active',
-                        code: resolvedState.state.code?.toString('hex') || null, //код контракта
-                        data: resolvedState.state.data?.toString('hex') || null //состояние ячейки c4
-                    };
-                case 'frozen':
-                    return {
-                        type: 'frozen',
-                        stateHash: resolvedState.state.stateHash.toString('hex') //хэш состояния перед заморозкой
-                    };
-                case 'uninit':
-                    return {
-                        type: 'uninit'
-                    };
-            }
-        })()
+    await myContract.sendDeposit(senderWallet.getSender(), toNano("5"));
+
+    const withdrawalRequestResult = await myContract.sendWithdrawalRequest(
+      senderWallet.getSender(),
+      toNano("0.5"),
+      toNano("1")
+    );
+
+    expect(withdrawalRequestResult.transactions).toHaveTransaction({
+      from: senderWallet.address,
+      to: myContract.address,
+      success: false,
+      exitCode: 103,
+    });
+  });
+
+  it("fails to withdraw funds because lack of balance", async () => {
+    const withdrawalRequestResult = await myContract.sendWithdrawalRequest(
+      ownerWallet.getSender(),
+      toNano("0.5"),
+      toNano("1")
+    );
+
+    expect(withdrawalRequestResult.transactions).toHaveTransaction({
+      from: ownerWallet.address,
+      to: myContract.address,
+      success: false,
+      exitCode: 104,
+    });
+  });
+
+  it("successfull attack", async () => {
+    const attacker = await blockchain.treasury("atack");
+    const user = await blockchain.treasury("commonuser");
+
+    await myContract.sendDeposit(user.getSender(), toNano("5"));
+    await myContract.sendDeposit(attacker.getSender(), toNano("1"));
+
+    const withdrawalRequestResult = await myContract.sendWithdrawalRequest(
+      ownerWallet.getSender(),
+      toNano("0.05"),
+      toNano("1")
+    );
+
+    expect(withdrawalRequestResult.transactions).toHaveTransaction({
+      from: myContract.address,
+      to: ownerWallet.address,
+      success: true,
+      value: toNano(1),
+    });
+  });
+
+});
+
+/*
+import { Address, Cell, toNano, beginCell } from "@ton/ton";
+import { Blockchain, internal, SandboxContract, TreasuryContract } from "@ton/sandbox";
+import { MainContract, MainContractConfig } from "../wrappers/MainContract";
+import { compileFunc } from "@ton-community/func-js";
+import { readFileSync } from "fs";
+
+describe("MainContract withdrawal vulnerability test", () => {
+  let blockchain: Blockchain;
+  let contract: SandboxContract<MainContract>;
+  let owner: SandboxContract<TreasuryContract>;
+  let codeCell: Cell;
+
+  beforeAll(async () => {
+    const compileResult = await compileFunc({
+      targets: ["contracts/main.fc"],
+      sources: (x) => readFileSync(x).toString("utf8"),
+    });
+    if (compileResult.status === "error") {
+      throw new Error(`Compilation failed: ${compileResult.message}`);
+    }
+    codeCell = Cell.fromBoc(Buffer.from(compileResult.codeBoc, "base64"))[0];
+  });
+
+  beforeEach(async () => {
+    blockchain = await Blockchain.create();
+    owner = await blockchain.treasury("owner");
+    const config: MainContractConfig = {
+      number: 0,
+      address: owner.address,
+      owner_address: owner.address,
     };
+    contract = blockchain.openContract(MainContract.createFromConfig(config, codeCell, 0));
+    await contract.sendDeploy(owner.getSender(), toNano("1")); // 1 TON
+  });
 
-    writeFileSync(filename, JSON.stringify(serializableState, null, 2));
-}
+  it("should prevent multiple withdrawals exceeding available balance", async () => {
+    const initialBalance = toNano("1");
+    const minTonsForStorage = toNano("0.01");
+    const withdrawAmount = toNano("0.4");
 
-function compareContractStates(file1Path: string, file2Path: string) {
-    const state1 = JSON.parse(readFileSync(file1Path, 'utf-8'));
-    const state2 = JSON.parse(readFileSync(file2Path, 'utf-8'));
+    console.log("balance:", BigInt((await contract.getBalance()).number));
 
-    let flag = true;
+    // Queue three withdrawal messages
+    const messages = [
+      internal({
+        from: owner.address,
+        to: contract.address,
+        value: toNano("0.05"),
+        body: beginCell().storeUint(3, 32).storeCoins(withdrawAmount).endCell(),
+      }),
+      internal({
+        from: owner.address,
+        to: contract.address,
+        value: toNano("0.05"),
+        body: beginCell().storeUint(3, 32).storeCoins(withdrawAmount).endCell(),
+      }),
+      internal({
+        from: owner.address,
+        to: contract.address,
+        value: toNano("0.05"),
+        body: beginCell().storeUint(3, 32).storeCoins(withdrawAmount).endCell(),
+      }),
+    ];
 
-    if (state1.balance !== state2.balance) {
-        console.log(`Balances are different: ${state1.balance} vs ${state2.balance}`);
-        flag = false;
+    // Queue all messages
+    for (const msg of messages) {
+      await blockchain.sendMessageIter(msg);
     }
-    
-    if (state1.last?.lt !== state2.last?.lt) {
-        console.log(`Last logical transaction times are different: ${state1.last?.lt} vs ${state2.last?.lt}`);
-        flag = false;
-    }
 
-    if (state1.last?.hash !== state2.last?.hash) {
-        console.log(`Last transaction hashes are different: ${state1.last?.hash} vs ${state2.last?.hash}`);
-        flag = false;
-    }
+    console.log("Pending messages:", (blockchain as any).messageQueue);
 
-    if (state1.state.type !== state2.state.type) {
-        console.log(`State types are different: ${state1.state.type} vs ${state2.state.type}`);
-        flag = false;
-    }
+    // Process all messages in the queue
+    const transactions: any[] = [];
+    const successfulWithdrawals: any[] = [];
+    const messageQueue = (blockchain as any).messageQueue;
 
-    if (state1.state.type === 'active' && state2.state.type === 'active') {
-        if (state1.state.code !== state2.state.code) {
-            console.log(`Contract codes are different: ${state1.state.code} vs ${state2.state.code}`);
-            flag = false;
+    // Iterate over each message in the queue
+    while (messageQueue.length > 0) {
+      const msg = messageQueue[0];
+      const iter = await blockchain.sendMessageIter(msg);
+      for await (const tx of iter) {
+        transactions.push(tx);
+        let op: number | undefined;
+        try {
+          op = tx.inMessage?.body.beginParse().loadUint(32);
+        } catch (e) {
+          op = undefined; // Handle bounced messages
         }
-
-        if (state1.state.data !== state2.state.data) {
-            console.log(`Contract data is different: ${state1.state.data} vs ${state2.state.data}`);
-            flag = false;
+        console.log("Processed transaction:", {
+          op,
+          exitCode: tx.description,
+          //outMessages: tx.outMessages.length,
+          //gasUsed: tx.description.gasUsed,
+        });
+        if (op === 3 && tx.outMessages.size > 0) {
+          successfulWithdrawals.push(tx);
         }
+      }
+      // Remove processed message
+      messageQueue.shift();
     }
 
-    if (state1.state.type === 'frozen' && state2.state.type === 'frozen') {
-        if (state1.state.stateHash !== state2.state.stateHash) {
-            console.log(`State hashes are different: ${state1.state.stateHash} vs ${state2.state.stateHash}`);
-            flag = false;
-        }
-    }
+    console.log("Total transactions:", transactions.length);
+    console.log("Successful withdrawals:", successfulWithdrawals.length);
 
-    if (flag === false) {
-        console.log("Contract states are different")
-    } else {
-        console.log("Contract states are not different")
+    const finalBalance = BigInt((await contract.getBalance()).number);
+    console.log("Final balance:", finalBalance.toString());
+    const maxWithdrawable = initialBalance - minTonsForStorage;
+    expect(finalBalance).toBeGreaterThanOrEqual(minTonsForStorage);
+    expect(successfulWithdrawals.length).toBeLessThanOrEqual(2); // At most 2 withdrawals
+    let totalSent = 0n;
+    for (const tx of successfulWithdrawals) {
+      totalSent += tx.outMessages[0].info.value?.coins || 0n;
     }
-    //TODO:
-    //нужно еще добавить сравнение extracurrency
-}
+    console.log("Total sent:", totalSent.toString());
+    expect(totalSent).toBeLessThanOrEqual(maxWithdrawable);
+
+    const data = await contract.getData();
+    expect(data.number).toBe(0);
+    expect(data.recent_sender.toString()).toBe(owner.address.toString());
+    expect(data.owner_address.toString()).toBe(owner.address.toString());
+  });
+});
+*/
