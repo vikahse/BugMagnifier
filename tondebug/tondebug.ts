@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as readline from "readline";
 import { beginCell, Cell, Address, toNano, CurrencyCollection, CommonMessageInfo } from "@ton/core";
 import { compileFunc } from "@ton-community/func-js";
-import { Blockchain, createShardAccount, SandboxContract } from "@ton/sandbox";
+import { Blockchain, createShardAccount, SandboxContract, PendingMessage, BlockchainTransaction } from "@ton/sandbox";
 import { randomAddress } from "@ton/test-utils";
 import ts from 'typescript';
 
@@ -20,7 +20,7 @@ interface ContractState {
 
 interface Message {
   id: number;
-  type: 'internal' | 'external-out';
+  type: 'internal' | 'external-in';
   body: Cell;
   sender: Address;
   value?: {
@@ -105,7 +105,7 @@ class TONDebugConsole {
     const currentState = await this.getCurrentState();
     this.stateHistory.push(currentState);
 
-    console.log("\nTON Debug Console started. Type 'exit' to quit.Currently available commands:");
+    console.log("\nTON Debug Console started. Type 'exit' to quit. Currently available commands:");
     this.showHelp();
     this.rl.prompt();
 
@@ -207,23 +207,67 @@ class TONDebugConsole {
               importFee: 0n
           };
 
-      // Отправка сообщения
-      const result = await this.blockchain.sendMessage({
-          info: messageInfo,
-          body: message.body
+      const iter = await this.blockchain.sendMessageIter({
+        info: messageInfo, 
+        body: message.body,
       });
 
-      if (!result.transactions || result.transactions.length === 0) {
+      let step = 0;
+      let result : BlockchainTransaction | undefined;
+      for await (const tx of iter) {
+         result = tx;
+         step++;
+          if (step == 1) {
+            break;
+          }
+      }
+      
+      const messageQueue: PendingMessage[] = (this.blockchain as any).messageQueue;
+
+      for (const pm of messageQueue) {
+        if (pm.type !== 'message') {
+            continue;
+        }           
+    
+        const { info, body } = pm;
+        const infoType = (info as any).type as string;
+    
+        if (infoType !== 'internal' && infoType !== 'external-in') continue;
+    
+        const sender = (info as any).src as Address;
+    
+        const value =
+            infoType === 'internal'
+                ? {
+                    coins: (info as any).value.coins as bigint,
+                    extraCurrencies: (info as any).value.extraCurrencies ?? null,
+                  }
+                : undefined;
+        let maxId = this.queue.length > 0 
+                ? Math.max(...this.queue.map(m => m.id)) 
+                : 0;
+
+        const msg: Message = {
+            id: ++maxId,
+            type: infoType as 'internal' | 'external-in',
+            body,
+            sender,
+            value,
+        };
+
+        this.queue.push(msg);
+      }    
+      if (!result) {
           throw new Error('No transactions were produced');
       }
       
-      const transactionResult = result.transactions[0];
+      // const transactionResult = result.transactions[0];
       const newState = await this.getCurrentState();
-      
+
       const transaction: Transaction = {
-          hash: transactionResult.hash().toString('hex'),
+          hash: result.hash().toString('hex'),
           message: message,
-          status: transactionResult.description.type === 'generic' ? 'success' : 'failed',
+          status: result.description.type === 'generic' ? 'success' : 'failed',
           stateChanges: newState
       };
   
@@ -233,7 +277,8 @@ class TONDebugConsole {
       this.stateHistory.push(newState);
   
       console.log(`Message executed successfully`);
-      console.log(`Transaction LT: ${transactionResult.lt}`);
+      console.log(`Transaction LT: ${result.lt}`);
+      console.log(`Transaction Status: ${transaction.status}`);
       console.log(`New balance: ${newState.balance}`);
       return true;
     } catch (err) {
@@ -261,10 +306,14 @@ class TONDebugConsole {
   // Сохраняем текущее состояние контракта в файл ---  внутренняя функция
   private async saveState(path: string): Promise<void> {
     const state = await this.getCurrentState();
+
     const serialized = {
+        last: state.lastTransaction ? {
+          lt: state.lastTransaction.lt.toString(),
+          hash: state.lastTransaction.hash} : null,
         balance: state.balance?.toString(),
-        code: state.code?.toBoc().toString('hex'),
-        data: state.data?.toBoc().toString('hex')
+        code: state.code?.toString('hex'),
+        data: state.data?.toString('hex')
     };
     await fs.promises.writeFile(path, JSON.stringify(serialized, null, 2));
     console.log(`State saved to ${path}`);
@@ -288,16 +337,26 @@ class TONDebugConsole {
             }
             await this.runSpecificMessage(parseInt(params[1]));
             break;
-        // case 'get-method':
-        //     if (params.length < 3 || params[1] !== '--name') {
-        //         console.log('Usage: run get-method --name <method>');
-        //         return;
-        //     }
-        //     await this.runGetMethod(params[2]);
-        //     break;
+        case 'get-method':
+            if (params.length < 3 || params[1] !== '--name') {
+                console.log('Usage: run get-method --name <method>');
+                return;
+            }
+            await this.runGetMethod(params[2]);
+            break;
         default:
             console.log('Invalid run command');
     }
+  }
+
+  private async runGetMethod(name: string) {
+    const data = await this.blockchain.runGetMethod(this.contractAddress, name, []);
+    console.log('\nBlockhain Logs:\n');
+    console.log(data.blockchainLogs);
+    console.log('VM Logs:\n');
+    console.log(data.vmLogs);
+    console.log('Stack:\n')
+    console.log(data.stack);
   }
 
   private showHelp(): void {
@@ -563,8 +622,7 @@ class TONDebugConsole {
     }
 
     try {
-      const data = await fs.promises.readFile(path, 'utf-8');
-      const messages: Message[] = JSON.parse(data);
+      const messages = await loadMessageQueue(path);
       
       let maxId = this.queue.length > 0 
         ? Math.max(...this.queue.map(m => m.id)) 
@@ -783,12 +841,13 @@ async function loadMessageQueue(path: string): Promise<Message[]> {
   }
   const res =  messages.map((msg, i) => ({
       id: msg.id || i + 1,
-      type: msg.type || 'external',
+      type: msg.type || 'internal',
       sender: randomAddress(),
       body: msg.body ? Cell.fromBoc(Buffer.from(msg.body, 'base64'))[0] : new Cell(),
       value: msg.value,
       name: msg.name
   }));
+
   return res;
 }
 

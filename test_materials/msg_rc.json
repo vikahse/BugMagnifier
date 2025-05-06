@@ -1,0 +1,22 @@
+[
+    {
+        "id": 1,
+        "type": "internal",
+        "body": "te6ccgEBAQEABgAACAAAAAI=",
+        "value": {
+            "coins": "1000000000",
+            "extraCurrencies": null
+        },
+        "name": "Claim"
+    },
+    {
+        "id": 2,
+        "type": "internal",
+        "body": "te6ccgEBAQEABgAACAAAAAE=",
+        "value": {
+            "coins": "1000000000",
+            "extraCurrencies": null
+        },
+        "name": "Deposit"
+    }    
+]

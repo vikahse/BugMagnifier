@@ -241,6 +241,13 @@ describe("main.fc contract tests", () => {
         expect(lastSender.toString()).toBe('EQDE9IcJ-mJKoVSrVXqtj1Uy3kmogZbeTLrCd9e_LwmAruq6');
     });
 
+    it("test race condition", async () => {
+        const bodyB64 = beginCell()
+            .storeUint(2, 32)                 
+            .endCell();
+        console.log(bodyB64.toBoc({ idx: false, crc32: false }).toString("base64"));
+        console.log(bodyB64);
+    });
   });
 
 async function saveContractState(filename: string, state: Promise<ContractState>) {

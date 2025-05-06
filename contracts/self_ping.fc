@@ -1,0 +1,18 @@
+#include "imports/stdlib.fc";
+
+() recv_internal(int msg_value, cell in_msg, slice in_msg_body) impure {
+    var data = get_data().begin_parse();
+    data~skip_bits(32);
+    slice own_address = data~load_msg_addr();
+
+    var message = begin_cell()
+        .store_uint(0x10, 6)
+        .store_slice(own_address)
+        .store_coins(0)
+        .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+        .store_uint(0, 32)
+        .store_slice("Hello, world!")
+        .end_cell();
+
+    send_raw_message(message, 64);
+}
