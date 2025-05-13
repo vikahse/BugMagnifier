@@ -4,7 +4,7 @@
 
 `yarn test`
 
-### TON Debug Console 
+### TON Debug Console: BugMagnifier
 
 Здесь я опишу сценарии того, как будет примерно выглядеть инструмент: 
 
