@@ -1,0 +1,35 @@
+[
+  {
+    "id": 1,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAI=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 1,
+    "name": "CLAIM Alice"
+  },
+  {
+    "id": 2,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAI=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "CLAIM Bob"
+  },
+  {
+    "id": 3,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAI=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "CLAIM Bob"
+  }
+]

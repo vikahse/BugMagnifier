@@ -1,0 +1,34 @@
+[
+    {
+        "id": 1,
+        "type": "internal",
+        "body": "te6ccgEBAQEABgAACAAAAAE=",
+        "value": { "coins": "1000000000", "extraCurrencies": null },
+        "senderId": 2,
+        "name": "ENLIST Bob (1 TON)"
+    },
+    {
+      "id": 2,
+      "type": "internal",
+      "body": "te6ccgEBAQEABgAACAAAAAE=",
+      "value": { "coins": "1000000000", "extraCurrencies": null },
+      "senderId": 1,
+      "name": "ENLIST Alice (1 TON)"
+    },
+    {
+      "id": 3,
+      "type": "internal",
+      "body": "te6ccgEBAQEABgAACAAAAAI=",
+      "value": { "coins": "1000000000", "extraCurrencies": null },
+      "senderId": 2,
+      "name": "CLAIM Bob"
+    },
+    {
+        "id": 4,
+        "type": "internal",
+        "body": "te6ccgEBAQEABgAACAAAAAI=",
+        "value": { "coins": "1000000000", "extraCurrencies": null },
+        "senderId": 1,
+        "name": "CLAIM Alice"
+    }
+]

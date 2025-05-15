@@ -2,11 +2,36 @@ import * as fs from "fs";
 import * as readline from "readline";
 import { beginCell, Cell, Address, toNano, CurrencyCollection, CommonMessageInfo } from "@ton/core";
 import { compileFunc } from "@ton-community/func-js";
-import { Blockchain, createShardAccount, SandboxContract, PendingMessage, BlockchainTransaction } from "@ton/sandbox";
+import { Blockchain, createShardAccount, SandboxContract, PendingMessage, BlockchainTransaction, printTransactionFees } from "@ton/sandbox";
 import { randomAddress } from "@ton/test-utils";
 import ts from 'typescript';
 
 // Work interface
+
+interface GeneratedMessage {
+  id: number;
+  type: string;
+  body: string;
+  value: {
+      coins: string;
+      extraCurrencies: null;
+  };
+  senderId: number;
+  name: string;
+}
+
+interface ExperimentContractState {
+  balance: string;
+  total: number;
+  owner_address: string | null;
+  owner_id?: string;
+  state: {
+      type: 'active' | 'frozen' | 'uninit';
+      code?: string | null; // hex-строка
+      data?: string | null; // hex-строка
+      stateHash?: string; // для frozen
+  };
+}
 
 interface ContractState {
     balance?: bigint;
@@ -16,6 +41,8 @@ interface ContractState {
         lt: string;
         hash: string;
     };
+    type?: 'active' | 'frozen' | 'uninit';
+    stateHash?: string; // для frozen type
 }
 
 interface Message {
@@ -31,10 +58,9 @@ interface Message {
 }
 
 interface Transaction {
-    hash: string;
-    message: Message;
-    status: 'success' | 'failed';
-    stateChanges: ContractState;
+  transaction: BlockchainTransaction,
+  message: Message;
+  stateChanges: ContractState;
 }
 
 interface DebugConsoleOptions {
@@ -42,6 +68,7 @@ interface DebugConsoleOptions {
     initialQueue?: Message[];
 }
 
+const SENDERS_LIST: Record<number, Address> = {};
 
 // TON Debug Console
 class TONDebugConsole {
@@ -78,7 +105,7 @@ class TONDebugConsole {
     const { hex } = JSON.parse(hexData);
     const codeCell = Cell.fromBoc(Buffer.from(hex, "base64"))[0];
 
-    // создаём начальное состояние
+    // создаём дефолтное начальное состояние
     const initialState = this.options.initialState || {
         balance: toNano('1'),
         code: this.codeCell,
@@ -105,7 +132,13 @@ class TONDebugConsole {
     const currentState = await this.getCurrentState();
     this.stateHistory.push(currentState);
 
-    console.log("\nTON Debug Console started. Type 'exit' to quit. Currently available commands:");
+    console.log(`
+ \u001b[36m   ╔════════════════════════════════════════════════════╗
+    ║\u001b[1;34m               TON Debug Console Started            \u001b[0;36m║
+    ╚════════════════════════════════════════════════════╝\u001b[0m
+
+      \u001b[33mType '\u001b[35mexit\u001b[33m' to quit.\u001b[0m
+    `);
     this.showHelp();
     this.rl.prompt();
 
@@ -118,7 +151,6 @@ class TONDebugConsole {
         process.exit(0);
     });
   }
-
 
   // Работа с командами в консоли
   private async handleCommand(input: string): Promise<void> {
@@ -164,23 +196,200 @@ class TONDebugConsole {
         case 'script':
           await this.handleScriptCommand(params);
           break;
+        case 'experiment':
+          await this.experiment();
+          break;
         case 'exit':
           this.rl.close();
           break;
         case '':
           break;
         default:
-            console.log(`Unknown command: "${command}". Type "help" for available commands.`);
+          console.log(`          
+            \u001b[33mCommand not recognized:\u001b[0m \u001b[35m"${command}"\u001b[0m
+            \u001b[36mType \u001b[32m"help"\u001b[36m to see available commands\u001b[0m
+          `);
       }
     } catch (err) {
         console.error(`Command error: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
+  // основной метод для воспроизведения численного эксперимента
+  private async experiment() {
+    let total_sum = 0;
+    for (let n = 0; n < 100; n++) {
+      for (let i = 0; i < 1000; i++) {
+          this.shuffleQueue();
+          // let order = await this.getPythonScriptToGenerateOrderQueue(this.queue.length);
+          this.showQueue();
+          const queueLength = this.queue.length;
+          for (let j = 0; j < queueLength; j++) {
+            // await this.runSpecificMessage(order[j]);
+            // await this.sleep(2000);
+            this.shuffleQueue();
+          }
+          if (i == 0) {
+            await this.saveExperimentState('tmp/first_exp_state.json')
+          } else {
+            await this.saveExperimentState('tmp/last_exp_state.json')
+            const diff = await this.diffExperimentContractState('tmp/first_exp_state.json', 'tmp/last_exp_state.json')
+
+            if (diff) {
+              fs.unlinkSync('tmp/last_exp_state.json');
+            } else {
+              console.log(`Состояния не совпали, номер итерации "${i + 1}"`);
+              const iterationNumber = i + 1;
+              total_sum += iterationNumber;
+              fs.appendFileSync('tmp/iterations.txt', `${iterationNumber} `, 'utf8');
+              
+              await this.addMessages('tmp/generated_queue.json')
+              const params = ['state', 'states/initial_rc_state.json']
+              await this.handleLoadCommand(params);
+
+              break;
+            }
+          }
+
+          await this.addMessages('tmp/generated_queue.json')
+          const params = ['state', 'states/initial_rc_state.json']
+          await this.handleLoadCommand(params);
+          console.log(`Итерация "${i + 1}"`);
+      }
+    }
+    console.log(`Total sum: "${total_sum}"`)
+  }
+
+  // метод для воспроизведения питон скрипта для получения рандомного порядка сообщений (для эксперимента)
+  private async getPythonScriptToGenerateOrderQueue(n: number): Promise<number[]> {
+    const { execSync } = require('child_process');
+    try {
+        console.log(n);
+        const result = execSync(`python3 tmp/shuffle_script.py ${n}`).toString().trim();;
+        console.log(result);
+        return result.split(' ').map(Number);
+    } catch (error) {
+        console.error('Error calling Python script:', error);
+        return [];
+    }
+  }
+
+  // метод для засыпания (использовался для эксперимента, чтобы легче было дебажить)
+  private async sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // метод сравнения состояний контракта (для эксперимента)
+  private async diffExperimentContractState(path1: string, path2:string): Promise<boolean> {
+    const state1: ExperimentContractState = JSON.parse(fs.readFileSync(path1, 'utf8'));
+    const state2: ExperimentContractState = JSON.parse(fs.readFileSync(path2, 'utf8'));
+
+    if (state1.balance !== state2.balance) {
+      console.log(`Balance mismatch: ${state1.balance} vs ${state2.balance}`);
+      return false;
+    }
+
+    if (state1.total !== state2.total) {
+        console.log(`Total mismatch: ${state1.total} vs ${state2.total}`);
+        return false;
+    }
+
+    if (state1.owner_address !== state2.owner_address) {
+      console.log(`Owner mismatch: ${state1.owner_address} vs ${state2.owner_address}`);
+      return false;
+    }
+
+    if (state1.state.type !== state2.state.type) {
+      console.log(`State type mismatch: ${state1.state.type} vs ${state2.state.type}`);
+      return false;
+    }
+
+    switch (state1.state.type) {
+      case 'active':
+          if (state2.state.type !== 'active') return false;
+          
+          if (state1.state.code !== state2.state.code) {
+              console.log('Code mismatch');
+              return false;
+          }
+
+          if (state1.state.data !== state2.state.data) {
+              console.log('Data mismatch');
+              return false;
+          }
+          break;
+
+      case 'frozen':
+          if (state2.state.type !== 'frozen') return false;
+          
+          if (state1.state.stateHash !== state2.state.stateHash) {
+              console.log('State hash mismatch');
+              return false;
+          }
+          break;
+
+      case 'uninit':
+          if (state2.state.type !== 'uninit') return false;
+          break;
+    }
+  
+    return true;
+  }
+
+  // метод для сохранения состояния контракта (для эксперимента)
+  private async saveExperimentState(filename: string) {
+    const state = await this.provider.getState();
+    const data = await this.blockchain.runGetMethod(this.contractAddress, 'get_state', []);
+    const total = data.stackReader.readNumber();
+    // console.log(data.stack.length);
+    let ownerAddress = null;
+    try {
+      ownerAddress = data.stackReader.readAddress();
+    } catch (e) {
+    }
+    // const ownerId = this.senderByAddr(ownerAddress);
+    console.log(ownerAddress);
+    const serializableState = {
+      balance: state.balance.toString(),
+      total: total,
+      owner_address: ownerAddress?.toString() || null,
+      // owner_id: ownerId,
+      state: (() => {
+          switch (state.state.type) {
+              case 'active':
+                  return {
+                      type: 'active',
+                      code: state.state.code?.toString('hex') || null,
+                      data: state.state.data?.toString('hex') || null
+                  };
+              case 'frozen':
+                  return {
+                      type: 'frozen',
+                      stateHash: state.state.stateHash.toString('hex')
+                  };
+              case 'uninit':
+                  return {
+                      type: 'uninit'
+                  };
+          }
+      })()
+    };
+    await fs.promises.writeFile(filename, JSON.stringify(serializableState, null, 2));
+  }
+
   // Обработать сообщение
   private async executeMessage(message: Message): Promise<boolean> {
-    console.log(`\nExecuting message ${message.id}: ${message.name || 'unnamed'}`);
-    console.log(`Type: ${message.type}, Value: ${message.value || '0'}`);
+      console.log(`
+        \u001b[36m╔════════════════════════════════════════════════════╗
+        \u001b[36m║\u001b[1;34m               Executing Message                    \u001b[0;36m║
+        \u001b[36m╚════════════════════════════════════════════════════╝\u001b[0m
+      
+        \u001b[33mMessage ID:\u001b[0m   \u001b[35m${message.id}\u001b[0m
+        \u001b[33mName:\u001b[0m        \u001b[32m${message.name || 'unnamed'}\u001b[0m
+        \u001b[33mType:\u001b[0m        \u001b[36m${message.type}\u001b[0m
+        \u001b[33mValue:\u001b[0m       \u001b[35m${message.value?.coins || '0'}\u001b[0m
+        \u001b[33mSender:\u001b[0m      \u001b[36m${this.senderByAddr(message.sender)}\u001b[0m
+      `);
 
     try {
       const msgType = message.type === 'internal' ? 'internal' : 'external-in';
@@ -206,16 +415,16 @@ class TONDebugConsole {
               dest: this.contractAddress,
               importFee: 0n
           };
-
+      
       const iter = await this.blockchain.sendMessageIter({
         info: messageInfo, 
         body: message.body,
       });
 
       let step = 0;
-      let result : BlockchainTransaction | undefined;
+      const result : BlockchainTransaction[] = []
       for await (const tx of iter) {
-         result = tx;
+         result.push(tx);
          step++;
           if (step == 1) {
             break;
@@ -223,7 +432,6 @@ class TONDebugConsole {
       }
       
       const messageQueue: PendingMessage[] = (this.blockchain as any).messageQueue;
-
       for (const pm of messageQueue) {
         if (pm.type !== 'message') {
             continue;
@@ -260,29 +468,44 @@ class TONDebugConsole {
       if (!result) {
           throw new Error('No transactions were produced');
       }
-      
-      // const transactionResult = result.transactions[0];
-      const newState = await this.getCurrentState();
 
+      const newState = await this.getCurrentState();
       const transaction: Transaction = {
-          hash: result.hash().toString('hex'),
-          message: message,
-          status: result.description.type === 'generic' ? 'success' : 'failed',
-          stateChanges: newState
-      };
-  
+        transaction: result[0],
+        message: message,
+        stateChanges: newState
+      }
+
       // запушили состояние транзакцию и сообщение в соответствуюшие списки
       this.transactions.push(transaction);
       this.executedMessages.push(message);
       this.stateHistory.push(newState);
   
-      console.log(`Message executed successfully`);
-      console.log(`Transaction LT: ${result.lt}`);
-      console.log(`Transaction Status: ${transaction.status}`);
-      console.log(`New balance: ${newState.balance}`);
+      console.log(`
+        \u001b[36m╔════════════════════════════════════════════════════╗
+        \u001b[36m║\u001b[1;34m              Transaction Executed                  \u001b[0;36m║
+        \u001b[36m╚════════════════════════════════════════════════════╝\u001b[0m
+      
+        \u001b[33mContract Address:\u001b[0m \u001b[35m${transaction.transaction.address}\u001b[0m
+        \u001b[33mCurrent Balance:\u001b[0m  \u001b[32m${newState.balance}\u001b[0m
+      
+        \u001b[36mTransaction Details:\u001b[0m
+          \u001b[33mLT:\u001b[0m \u001b[35m${transaction.transaction.lt}\u001b[0m
+          \u001b[33mHash:\u001b[0m \u001b[35m${transaction.transaction.hash().toString('hex')}\u001b[0m
+          \u001b[33mStatus:\u001b[0m \u001b[36m${transaction.transaction.endStatus}\u001b[0m
+          \u001b[33mOut Msgs:\u001b[0m \u001b[35m${transaction.transaction.outMessagesCount}\u001b[0m
+      
+        \u001b[36mPrevious Transaction:\u001b[0m
+          \u001b[33mLT:\u001b[0m \u001b[35m${transaction.transaction.prevTransactionLt}\u001b[0m
+          \u001b[33mHash:\u001b[0m \u001b[35m${transaction.transaction.prevTransactionHash}\u001b[0m
+      
+        \u001b[33mTransaction fees:\u001b[0m
+      `);
+
+      console.log(printTransactionFees(result));
       return true;
     } catch (err) {
-      console.error(`Failed to execute message: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`\u001b[31m✖\u001b[0m Failed to execute message: \u001b[33m${err instanceof Error ? err.message : String(err)}\u001b[0m`);
       return false;
     }
   }
@@ -293,15 +516,16 @@ class TONDebugConsole {
     
     return {
       balance: state.balance,
+      type: state.state.type,
       code: state.state.type === 'active' ? state.state.code : undefined,
       data: state.state.type === 'active' ? state.state.data : undefined,
+      stateHash: state.state.type === 'frozen' ? state.state.stateHash.toString('hex') : undefined,
       lastTransaction: state.last ? {
           lt: state.last.lt.toString(),
           hash: state.last.hash.toString('hex')
       } : undefined
     };
   }
-
 
   // Сохраняем текущее состояние контракта в файл ---  внутренняя функция
   private async saveState(path: string): Promise<void> {
@@ -313,16 +537,18 @@ class TONDebugConsole {
           hash: state.lastTransaction.hash} : null,
         balance: state.balance?.toString(),
         code: state.code?.toString('hex'),
-        data: state.data?.toString('hex')
+        data: state.data?.toString('hex'),
+        type: state.type,
+        stateHash: state.stateHash
     };
     await fs.promises.writeFile(path, JSON.stringify(serialized, null, 2));
-    console.log(`State saved to ${path}`);
+    console.log(`\n\u001b[32m✓ State saved to ${path}\u001b[0m\n`);
   }
 
   // все команды начинающиеся на run --- внутренняя функция
   private async handleRunCommand(params: string[]): Promise<void> {
     if (params.length === 0) {
-        console.log('Usage: run <next|message <id>|get-method --name <method>>');
+        console.log(`\n\u001b[33mUsage: run <next|message <id>|get-method --name <method>>\u001b[0m\n`);
         return;
     }
 
@@ -332,54 +558,49 @@ class TONDebugConsole {
             break;
         case 'message':
             if (params.length < 2) {
-                console.log('Please specify message ID');
+                console.log(`\n\u001b[33mPlease specify message ID\u001b[0m\n`);
                 return;
             }
             await this.runSpecificMessage(parseInt(params[1]));
             break;
-        case 'get-method':
-            if (params.length < 3 || params[1] !== '--name') {
-                console.log('Usage: run get-method --name <method>');
-                return;
-            }
-            await this.runGetMethod(params[2]);
-            break;
+        // case 'get-method':
+        //     if (params.length < 3 || params[1] !== '--name') {
+        //       console.log(`\n\u001b[33mUsage: run get-method --name <method>\u001b[0m\n`);
+        //         return;
+        //     }
+        //     await this.runGetMethod(params[2]);
+        //     break;
         default:
             console.log('Invalid run command');
     }
   }
 
-  private async runGetMethod(name: string) {
-    const data = await this.blockchain.runGetMethod(this.contractAddress, name, []);
-    console.log('\nBlockhain Logs:\n');
-    console.log(data.blockchainLogs);
-    console.log('VM Logs:\n');
-    console.log(data.vmLogs);
-    console.log('Stack:\n')
-    console.log(data.stack);
-  }
-
   private showHelp(): void {
-    console.log(`
-    \nAvailable commands:
-    ---  help                                  Show this help message
-    ---  run next                              Execute next message from queue
-    ---  run message <id>                      Execute specific message by ID
-    ---  run get-method --name <method>        Call contract method
-    ---  continue                              Execute all remaining messages
-    ---  show state                            Show current contract state
-    ---  show transactions                     List executed transactions
-    ---  show message log                      Show executed messages log
-    ---  load state <path>                     Load state from file
-    ---  save state <path>                     Save current state to file
-    ---  diff <path1> <path2>                  Compare two state files
-    ---  queue list                            Show message queue
-    ---  set queue --order <reverse/random>    Reorder queue
-    ---  add messages <path>                   Add messages from JSON file
-    ---  delete message <id>                   Remove message from queue
-    ---  script load <path>                    Load custom queue script
-    ---  script run                            Execute custom queue script
-    ---  exit                                  Exit the debug console
+      console.log(`
+    \u001b[36m╔════════════════════════════════════════════════════╗
+    \u001b[36m║\u001b[1;34m                Command Reference                   \u001b[0;36m║
+    \u001b[36m╚════════════════════════════════════════════════════╝\u001b[0m
+  
+      \u001b[32mrun next\u001b[0m                           - Execute next message from queue
+      \u001b[32mrun message \u001b[35m<id>\u001b[0m                   - Execute specific message by ID
+      \u001b[32mcontinue\u001b[0m                           - Execute all remaining messages
+      \u001b[32mqueue list\u001b[0m                         - Show message queue
+      \u001b[32mset queue \u001b[35m--order reverse/random\u001b[0m   - Reorder queue
+      \u001b[32madd messages \u001b[35m<path>\u001b[0m                - Add messages from JSON file
+      \u001b[32mdelete message \u001b[35m<id>\u001b[0m                - Remove message from queue
+      \u001b[32mscript load \u001b[35m<path>\u001b[0m                 - Load custom queue script
+      \u001b[32mscript run\u001b[0m                         - Execute custom queue script
+
+      \u001b[32mshow state\u001b[0m                         - Show current contract state
+      \u001b[32mload state \u001b[35m<path>\u001b[0m                  - Load state from file
+      \u001b[32msave state \u001b[35m<path>\u001b[0m                  - Save current state to file
+      \u001b[32mdiff \u001b[35m<path1> <path2>\u001b[0m               - Compare two state files
+
+      \u001b[32mshow transactions\u001b[0m                  - List executed transactions
+      \u001b[32mshow message log\u001b[0m                   - Show executed messages log
+
+      \u001b[32mhelp\u001b[0m                               - Show this help message
+      \u001b[32mexit\u001b[0m                               - Exit the debug console
     `);
   }
 
@@ -398,7 +619,7 @@ class TONDebugConsole {
     private async runSpecificMessage(id: number): Promise<void> {
       const index = this.queue.findIndex(m => m.id === id);
       if (index === -1) {
-          console.log(`Message with ID ${id} not found in queue`);
+          console.log(`\n\u001b[33mMessage with ID ${id} not found in the queue\u001b[0m\n`);
           return;
       }
 
@@ -409,22 +630,29 @@ class TONDebugConsole {
   // Доделать все сообщения
   private async runAllMessages(): Promise<void> {
     if (this.queue.length === 0) {
-        console.log('No messages in queue');
+        console.log(`\n\u001b[33mNo messages in the queue\u001b[0m\n`);
         return;
     }
 
-    console.log(`Executing ${this.queue.length} messages...`);
+      console.log(`
+        \u001b[36m╔════════════════════════════════════════════════════╗
+        \u001b[36m║\u001b[1;34m             Processing Message Queue               \u001b[0;36m║
+        \u001b[36m╚════════════════════════════════════════════════════╝\u001b[0m
+        
+        \u001b[33mTotal messages:\u001b[0m \u001b[35m${this.queue.length}\u001b[0m
+      `);
+
     while (this.queue.length > 0) {
         await this.runNextMessage();
     }
-    console.log('All messages executed');
-  }
 
+    console.log(`\n\u001b[32m✓ All messages executed successfully!\u001b[0m\n`);
+  }
 
   // все команды начинающиеся на show --- внутренняя функция
   private async handleShowCommand(params: string[]): Promise<void> {
     if (params.length === 0) {
-      console.log('Usage: show <state|transactions|message log>');
+      console.log(`\n\u001b[33mUsage: show <state|transactions|message log>\u001b[0m\n`);
       return;
     }
 
@@ -441,67 +669,108 @@ class TONDebugConsole {
           }
           break;
       default:
-          console.log('Invalid show command');
+          console.log(`\n\u001b[33mInvalid show command\u001b[0m\n`);
     }
   }
 
   // показать текущее состояние
   private async showState(): Promise<void> {
     const state = await this.getCurrentState();
+
+    console.log(`
+      \u001b[36m╔════════════════════════════════════════════════════╗
+      \u001b[36m║\u001b[1;34m              Current Contract State                \u001b[0;36m║
+      \u001b[36m╚════════════════════════════════════════════════════╝\u001b[0m
     
-    console.log('\nCurrent contract state:');
-    console.log(`Balance: ${state.balance}`);
-    console.log(`Code: ${state.code ? 'present' : 'none'}`);
-    console.log(`Data: ${state.data ? 'present' : 'none'}`);
+      \u001b[33mBalance:\u001b[0m \u001b[35m${state.balance?.toString() || 'N/A'}\u001b[0m
+      \u001b[33mStatus:\u001b[0m  \u001b[32m${state.type || 'unknown'}\u001b[0m
+    `);
+
+    switch (state.type) {
+      case 'active':
+        console.log(`
+      \u001b[33mCode:\u001b[0m \u001b[36m${state.code?.toString('hex') || 'null'}\u001b[0m
+      \u001b[33mData:\u001b[0m \u001b[36m${state.data?.toString('hex') || 'null'}\u001b[0m
+        `);
+        break;
+      case 'frozen':
+        console.log(`
+      \u001b[33mState Hash:\u001b[0m \u001b[35m${state.stateHash || 'null'}\u001b[0m
+        `);
+        break;
+    }
     
     if (state.lastTransaction) {
-        console.log('\nLast transaction:');
-        console.log(`LT: ${state.lastTransaction.lt}`);
-        console.log(`Hash: ${state.lastTransaction.hash}`);
+      console.log(`
+      \u001b[33mLast Transaction:\u001b[0m
+        \u001b[36mLT:\u001b[0m   \u001b[35m${state.lastTransaction.lt}\u001b[0m
+        \u001b[36mHash:\u001b[0m \u001b[35m${state.lastTransaction.hash}\u001b[0m
+        `);
     } else {
-        console.log('\nNo transactions yet');
+      console.log('\n  \u001b[33mNo transactions yet\u001b[0m');
     }
   }
 
   // показать список выполненных транзакций
   private showTransactions(): void {
     if (this.transactions.length === 0) {
-        console.log('No transactions yet');
+        console.log(`\n\u001b[33mNo transactions yet\u001b[0m\n`);
         return;
     }
 
-    console.log(`\nTransaction history (${this.transactions.length}):`);
+    console.log(`\n\u001b[32mTransaction history (${this.transactions.length}):\u001b[0m`);
     this.transactions.forEach((tx, i) => {
-        console.log(`\n${i + 1}. ${tx.hash}`);
-        console.log(`Message: ${tx.message.id} (${tx.message.name || 'unnamed'})`);
-        console.log(`Status: ${tx.status}`);
-        console.log(`Balance change: ${tx.stateChanges.balance}`);
+        console.log(`    
+          \u001b[33m\n${i + 1}. ${tx.transaction.hash().toString('hex')}\u001b[0m
+
+          \u001b[33mContract Address:\u001b[0m \u001b[35m${tx.transaction.address}\u001b[0m
+          \u001b[33mCurrent Balance:\u001b[0m  \u001b[32m${tx.stateChanges.balance}\u001b[0m
+        
+          \u001b[36mTransaction Details:\u001b[0m
+            \u001b[33mLT:\u001b[0m \u001b[35m${tx.transaction.lt}\u001b[0m
+            \u001b[33mHash:\u001b[0m \u001b[35m${tx.transaction.hash().toString('hex')}\u001b[0m
+            \u001b[33mStatus:\u001b[0m \u001b[36m${tx.transaction.endStatus}\u001b[0m
+            \u001b[33mOut Msgs:\u001b[0m \u001b[35m${tx.transaction.outMessagesCount}\u001b[0m
+        
+          \u001b[36mPrevious Transaction:\u001b[0m
+            \u001b[33mLT:\u001b[0m \u001b[35m${tx.transaction.prevTransactionLt}\u001b[0m
+            \u001b[33mHash:\u001b[0m \u001b[35m${tx.transaction.prevTransactionHash}\u001b[0m
+        
+          \u001b[33mMessage:\u001b[0m \u001b[35m${tx.message.id} (${tx.message.name || 'unnamed'})\u001b[0m  
+        `);
     });
   }
 
   // показать лог сообщений
   private showMessageLog(): void {
     if (this.executedMessages.length === 0) {
-        console.log('No messages executed yet');
+        console.log(`\n\u001b[33mNo messages executed yet\u001b[0m\n`);
         return;
     }
 
-    console.log(`\nExecuted messages (${this.executedMessages.length}):`);
+    console.log(`\n\u001b[33mExecuted messages:\u001b[0m \u001b[33m${this.executedMessages.length}\u001b[0m messages\n`);
     this.executedMessages.forEach((msg, i) => {
-        console.log(`${i + 1}. ID: ${msg.id}, Name: ${msg.name || 'unnamed'}, Type: ${msg.type}`);
+      const num = (i + 1).toString().padStart(2, ' ');
+      console.log(
+        `  \u001b[36m${num}.\u001b[0m ` +
+        `ID: \u001b[34m${msg.id}\u001b[0m, ` +
+        `Name: \u001b[34m${msg.name || 'unnamed'},\u001b[0m ` +
+        `Type: \u001b[34m${msg.type}, \u001b[0m ` +
+        `from Sender: \u001b[34m${this.senderByAddr(msg.sender)}\u001b[0m\n`
+      );
     });
   }
 
   // задать состояние TVM вручную
   private async handleLoadCommand(params: string[]): Promise<void> {
     if (params.length < 2 || params[0] !== 'state') {
-      console.log('Usage: load state <path>');
+      console.log(`\n\u001b[33mUsage: load state <path>\u001b[0m\n`);
       return;
     }
 
     const path = params[1];
     if (!fs.existsSync(path)) {
-      console.log(`File not found: ${path}`);
+      console.log(`\n\u001b[33mFile not found: ${path}\u001b[0m\n`);
       return;
     }
 
@@ -509,9 +778,8 @@ class TONDebugConsole {
       const data = await fs.promises.readFile(path, 'utf-8');
       const state = JSON.parse(data);
       
-      if (state.balance) {
-        const balance = BigInt(state.balance);
-        await this.blockchain.setShardAccount(
+      const balance = BigInt(state.balance);
+      await this.blockchain.setShardAccount(
           this.contractAddress,
           createShardAccount({
             address: this.contractAddress,
@@ -519,23 +787,21 @@ class TONDebugConsole {
             data: state.data ? Cell.fromBoc(Buffer.from(state.data, "base64"))[0] : new Cell(),
             balance: balance
           })
-        );
-          
-        console.log(`State loaded. New balance: ${balance}`);
-      } else {
-        console.log('State loaded (no balance change)');
-      }
+      );
+
+      console.log(`\n\u001b[32m✓ State loaded.\u001b[0m\n`);
+      console.log(await this.showState());
       
       this.stateHistory.push(await this.getCurrentState());
     } catch (err) {
-      console.error(`Failed to load state: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`\u001b[31m✖\u001b[0m Failed to load state: \u001b[33m${err instanceof Error ? err.message : String(err)}\u001b[0m`);
     }
   }
 
   // Сохранить состояние TVM по конкретному пути --- внутренняя функция
   private async handleSaveCommand(params: string[]): Promise<void> {
     if (params.length < 2 || params[0] !== 'state') {
-      console.log('Usage: save state <path>');
+      console.log(`\n\u001b[33mUsage: save state <path>\u001b[0m\n`);
       return;
     }
 
@@ -545,7 +811,7 @@ class TONDebugConsole {
   // сравнить состояния по пути 1 и 2
   private async diffStates(path1: string, path2: string): Promise<void> {
     if (!fs.existsSync(path1) || !fs.existsSync(path2)) {
-      console.log('One or both state files not found');
+      console.log(`\n\u001b[33mOne or both state files not found\u001b[0m\n`);
       return;
     }
 
@@ -555,11 +821,10 @@ class TONDebugConsole {
         fs.promises.readFile(path2, 'utf-8').then(JSON.parse)
       ]);
 
-      // непосредственно сравнение
-      console.log('\nComparing states:');
+      console.log(`\n\u001b[33mComparing states:\u001b[0m\n`);
       this.compareObjects(state1, state2);
     } catch (err) {
-      console.error(`Failed to compare states: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`\u001b[31m✖\u001b[0m Failed to compare states: \u001b[33m${err instanceof Error ? err.message : String(err)}\u001b[0m`);
     }
   }
   
@@ -594,7 +859,7 @@ class TONDebugConsole {
   // работа с очередью --- внутренняя функция
   private async handleQueueCommand(params: string[]): Promise<void> {
     if (params.length === 0 || params[0] !== 'list') {
-      console.log('Usage: queue list');
+      console.log(`\n\u001b[33mUsage: queue list\u001b[0m\n`);
       return;
     }
 
@@ -604,20 +869,31 @@ class TONDebugConsole {
   // Вывести оставшиеся сообщения в очереди
   private showQueue(): void {
     if (this.queue.length === 0) {
-      console.log('Queue is empty');
+      console.log(`\n\u001b[33mThe message queue is currently empty\u001b[0m\n`);
       return;
     }
 
-    console.log(`\nMessages in queue (${this.queue.length}):`);
-    this.queue.forEach(msg => {
-      console.log(`ID: ${msg.id}, Name: ${msg.name || 'unnamed'}, Type: ${msg.type}`);
+    console.log(`\n\u001b[33mMessages in queue:\u001b[0m \u001b[33m${this.queue.length}\u001b[0m messages\n`);
+    this.queue.forEach((msg, i) => {
+      const num = (i + 1).toString().padStart(2, ' ');
+      console.log(
+        `  \u001b[36m${num}.\u001b[0m ` +
+        `ID: \u001b[34m${msg.id}\u001b[0m, ` +
+        `Name: \u001b[34m${msg.name || 'unnamed'},\u001b[0m ` +
+        `Type: \u001b[34m${msg.type}, \u001b[0m ` +
+        `from Sender: \u001b[34m${this.senderByAddr(msg.sender)}\u001b[0m\n`
+      );
     });
+  }
+
+  private senderByAddr(addr: Address): number | undefined {
+    return (Object.entries(SENDERS_LIST).find(([, a]) => a.equals(addr)))?.[0] as unknown as number | undefined;
   }
 
   // добавить сообщения из JSON file
   private async addMessages(path: string): Promise<void> {
     if (!fs.existsSync(path)) {
-      console.log(`File not found: ${path}`);
+      console.log(`\n\u001b[33mFile not found: ${path}\u001b[0m\n`);
       return;
     }
 
@@ -632,10 +908,9 @@ class TONDebugConsole {
         this.queue.push(msg);
       });
 
-      console.log(`Added ${messages.length} messages to queue`);
       this.showQueue();
     } catch (err) {
-      console.error(`Failed to add messages: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`\u001b[31m✖\u001b[0m Failed to add messages: \u001b[33m${err instanceof Error ? err.message : String(err)}\u001b[0m`);
     }
   }
 
@@ -645,9 +920,9 @@ class TONDebugConsole {
     this.queue = this.queue.filter(m => m.id !== id);
 
     if (this.queue.length === initialLength) {
-      console.log(`Message with ID ${id} not found in queue`);
+      console.log(`\n\u001b[33mMessage with ID ${id} not found in the queue\u001b[0m\n`);
     } else {
-      console.log(`Message ${id} removed from queue`);
+      console.log(`\n\u001b[32m✓ Message ${id} removed from the queue\u001b[0m`);
       this.showQueue();
     }
   }
@@ -655,7 +930,7 @@ class TONDebugConsole {
   // возможность изменить порядок сообщений: рандомоно перемешать \ развернуть список
   private async handleSetCommand(params: string[]): Promise<void> {
     if (params.length < 3 || params[0] !== 'queue' || params[1] !== '--order') {
-      console.log('Usage: set queue --order <reverse/random>');
+      console.log(`\n\u001b[33mUsage: set queue --order <reverse/random>\u001b[0m\n`);
       return;
     }
 
@@ -663,28 +938,28 @@ class TONDebugConsole {
     switch (order) {
       case 'reverse':
         this.queue.reverse();
-        console.log('Queue order reversed');
+        console.log(`\n\u001b[32m✓ Queue order reversed\u001b[0m\n`);
         break;
       case 'random':
         this.shuffleQueue();
-        console.log('Queue order randomized');
+        console.log(`\n\u001b[32m✓ Queue order randomized\u001b[0m\n`);
         break;
       default:
-        console.log(`Unknown order: ${order}. Use 'reverse' or 'random'`);
+        console.log(`\n\u001b[33mUnknown order: ${order}. Use 'reverse' or 'random'\u001b[0m\n`);
     }
   }
 
   // возможность задать порядок сообщений по скрипту пользователя
   private async handleScriptCommand(params: string[]): Promise<void> {
     if (params.length === 0) {
-        console.log('Usage: script <load <path>|run>');
+        console.log('\n \u001b[33mUsage:\u001b[0m \u001b[32mscript\u001b[0m \u001b[35m<load <path> | run>\u001b[0m \n')
         return;
     }
 
     switch (params[0]) {
         case 'load':
             if (params.length < 2) {
-                console.log('Please specify script path');
+                console.log('\n \u001b[33mPlease, specify script path\u001b[0m \n')
                 return;
             }
             await this.loadScript(params[1]);
@@ -693,7 +968,7 @@ class TONDebugConsole {
             await this.runScript();
             break;
         default:
-            console.log('Invalid script command');
+            console.log('\n \u001b[33mInvalid script command\u001b[0m \n')
     }
   }
 
@@ -708,7 +983,9 @@ class TONDebugConsole {
   // загружаем скрипт по переданному пути
   private async loadScript(filePath: string): Promise<void> {
     if (!fs.existsSync(filePath)) {
-        console.log(`File not found: ${filePath}`);
+        console.error(`
+          \u001b[31m✖ File not found:\u001b[0m \u001b[33m${filePath}\u001b[0m
+            `);
         return;
     }
 
@@ -736,51 +1013,72 @@ class TONDebugConsole {
         eval(wrapped);
       
         if (typeof module.exports.modifyQueue !== 'function') {
-            console.error('Script must export function "modifyQueue(queue)"');
+            console.error(`
+              \u001b[31m✖ Invalid script format:\u001b[0m
+              \u001b[36mScript must export function "modifyQueue(queue)"\u001b[0m
+                  `);
             return;
         }
         this.scriptFn = module.exports.modifyQueue as (q: Message[]) => void;
-        console.log(`Script loaded from ${filePath}`);
+        console.log(`
+          \u001b[1;32m✓ Script loaded successfully!\u001b[0m
+          \u001b[36mFile:\u001b[0m \u001b[33m${filePath}\u001b[0m
+            `);
     } catch (err) {
-        console.error(`Failed to load script: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`
+        \u001b[31m✖ Failed to load script\u001b[0m
+        \u001b[33mError:\u001b[0m \u001b[37m${err instanceof Error ? err.message : String(err)}\u001b[0m
+            `);
     }
   }
 
   // применяем скрипт к очереди
   private async runScript(): Promise<void> {
       if (!this.scriptFn) {
-          console.warn('No script loaded – nothing to run');
+          console.error(`\n \u001b[31m✖ No script loaded – nothing to run\u001b[0m \n`);
           return;
       }
-      console.log('Running custom queue script');
       await this.scriptFn(this.queue);
-      console.log('Queue after script execution:');
+      console.log(`
+        \u001b[1;32m✓ Script executed successfully!\u001b[0m
+        \u001b[36mQueue modified:\u001b[0m \u001b[33m${this.queue.length}\u001b[0m messages
+        `);
       this.showQueue();
   }
 
 }
 
-
 // Компиляция контракта
 async function compileContract(contractPath: string): Promise<Cell> {
-  
+  console.log(`
+    \u001b[36m╔════════════════════════════════════════════════════╗
+    ║\u001b[1;34m          TON Contract Compilation Started          \u001b[0;36m║
+    ╚════════════════════════════════════════════════════╝\u001b[0m
+    `);
+
   const compileResult = await compileFunc({
     targets: [contractPath],
     sources: (x) => fs.readFileSync(x).toString("utf8"),
   });
 
   if (compileResult.status === "error") {
-    console.log(" - OH NO! Compilation Errors! The compiler output was:");
-    console.log(`\n${compileResult.message}`);
+    console.error(`
+      \u001b[1;31m✖ Compilation Failed\u001b[0m
+    
+      \u001b[33mCompiler output:\u001b[0m
+      \u001b[37m${compileResult.message}\u001b[0m
+        `);
     throw new Error("Compilation failed");
   }
 
   const codeCell = Cell.fromBoc(Buffer.from(compileResult.codeBoc, "base64"))[0];
-  console.log(" - Compilation successful!");
+  console.log(`
+    \u001b[1;32m✓ Compilation successful!\u001b[0m
+    `);
   
   if (!fs.existsSync('tmp')) {
     fs.mkdirSync('tmp');
-    console.log(' - Created tmp directory');
+    console.log('  \u001b[33m• Created tmp directory\u001b[0m');
   }
 
   const hexArtifact = `tmp/tondebug.compiled.json`;
@@ -794,14 +1092,21 @@ async function compileContract(contractPath: string): Promise<Cell> {
     })
   );
 
-  console.log(" - Compiled code saved to " + hexArtifact);
+  console.log(`
+    \u001b[33mCompiled artifact saved to:\u001b[0m \u001b[36m${hexArtifact}\u001b[0m
+    `);
 
   return codeCell;
 }
 
-
 // Начальное состояние
 async function validateInitState(path: string): Promise<ContractState> {
+  console.log(`
+    \u001b[36m╔════════════════════════════════════════════════════╗
+    ║\u001b[1;34m          Validating Contract Initial State         \u001b[0;36m║
+    ╚════════════════════════════════════════════════════╝\u001b[0m
+    `);
+
   const state = JSON.parse(fs.readFileSync(path, 'utf-8'));
 
   const validFields = ['balance', 'code', 'data'];
@@ -810,12 +1115,22 @@ async function validateInitState(path: string): Promise<ContractState> {
   );
       
   if (invalidFields.length > 0) {
+     console.error(`
+      \u001b[31m✖ Invalid fields detected:\u001b[0m \u001b[33m${invalidFields.join(', ')}\u001b[0m
+      \u001b[36mAllowed fields:\u001b[0m \u001b[35mbalance\u001b[0m, \u001b[35mcode\u001b[0m, \u001b[35mdata\u001b[0m
+          `);
       throw new Error(`Invalid fields in state file: ${invalidFields.join(', ')}`);
   }
       
   if (!state.balance && !state.code && !state.data) {
+    console.error(`
+      \u001b[31m✖ Empty state file\u001b[0m
+      \u001b[36mState must contain at least one of:\u001b[0m
+        \u001b[35mbalance\u001b[0m, \u001b[35mcode\u001b[0m or \u001b[35mdata\u001b[0m
+          `);
     throw new Error('State file must contain at least one of: balance, code, data');
   } 
+
   const resultState: ContractState = {};
   if (state.balance) {
       resultState.balance = BigInt(state.balance);
@@ -826,33 +1141,124 @@ async function validateInitState(path: string): Promise<ContractState> {
   if (state.data) {
       resultState.data = Cell.fromBoc(Buffer.from(state.data, "base64"))[0];
   }
+
+  console.log(`
+    \u001b[1;32m✓ Initial state validation complete!\u001b[0m
+      `);
+
   return resultState;
 }
 
-
 // Загружаем очередь сообщений для обработки в TON Debug Console
 async function loadMessageQueue(path: string): Promise<Message[]> {
-  if (!fs.existsSync(path)) {
-      throw new Error(`Queue file not found: ${path}`);
+  console.log(`
+    \u001b[36m╔════════════════════════════════════════════════════╗
+    ║\u001b[1;34m              Loading Message Queue                 \u001b[0;36m║
+    ╚════════════════════════════════════════════════════╝\u001b[0m
+    `);
+  try {
+    if (!fs.existsSync(path)) {
+      console.error(`
+        \u001b[31m✖ Error:\u001b[0m File not found
+        \u001b[36mPlease verify the path exists:\u001b[0m
+        \u001b[33m${path}\u001b[0m
+            `);
+        throw new Error(`Queue file not found: ${path}`);
+    }
+    const messages = JSON.parse(fs.readFileSync(path, 'utf-8'));
+    if (!Array.isArray(messages)) {
+      console.error(`
+        \u001b[31m✖ Invalid format:\u001b[0m
+        \u001b[36mQueue file must contain an array of messages\u001b[0m
+            `);
+        throw new Error('Queue file must contain an array of messages');
+    }
+    const res =  messages.map((msg, i) => ({
+        id: msg.id || i + 1,
+        type: msg.type || 'internal',
+        sender: setSender(msg),
+        body: msg.body ? Cell.fromBoc(Buffer.from(msg.body, 'base64'))[0] : new Cell(),
+        value: msg.value,
+        name: msg.name
+    }));
+    console.log(`
+      \u001b[1;32m✓ Message queue loaded successfully!\u001b[0m
+        `);
+    return res;
+  } catch (err) {
+    console.error(`
+  \u001b[31m✖ Failed to load message queue:\u001b[0m \u001b[33m${err}\u001b[0m
+    `);
+    throw err;
   }
-  const messages = JSON.parse(fs.readFileSync(path, 'utf-8'));
-  if (!Array.isArray(messages)) {
-      throw new Error('Queue file must contain an array of messages');
-  }
-  const res =  messages.map((msg, i) => ({
-      id: msg.id || i + 1,
-      type: msg.type || 'internal',
-      sender: randomAddress(),
-      body: msg.body ? Cell.fromBoc(Buffer.from(msg.body, 'base64'))[0] : new Cell(),
-      value: msg.value,
-      name: msg.name
-  }));
-
-  return res;
 }
 
+// загрузка скрипта на питоне для рандомизации типа сообщения (для эксперимента)
+function getPythonScriptToGenerateMsgType(): boolean {
+  const { execSync } = require('child_process');
 
-// непосредственно main
+  const result = execSync(`python3 tmp/shuffle_type_msg.py`).toString().trim();;
+  if (result == 'True') {
+    return true;
+  }
+  return false;
+}
+
+// генерация рандомной очереди для эксперимента и контракта contracts/race_condition_wallet.fc
+function generateQueue(n1: number, n2: number): void {
+    const messages: GeneratedMessage[] = [];
+    let id = 1;
+
+    // Генерация сообщений для Alice (senderId = 1)
+    for (let i = 0; i < n1; i++) {
+        const isEnlist = getPythonScriptToGenerateMsgType();
+        const body = isEnlist ? "te6ccgEBAQEABgAACAAAAAE=" : "te6ccgEBAQEABgAACAAAAAI=";
+        const value = "1000000000";
+        const name = isEnlist ? "ENLIST Alice (1 TON)" : "CLAIM Alice";
+
+        messages.push({
+            id: id++,
+            type: "internal",
+            body: body,
+            value: { coins: value, extraCurrencies: null },
+            senderId: 1,
+            name: name
+        });
+    }
+
+    // Генерация сообщений для Bob (senderId = 2)
+    for (let i = 0; i < n2; i++) {
+        const isEnlist = getPythonScriptToGenerateMsgType();
+        const body = isEnlist ? "te6ccgEBAQEABgAACAAAAAE=" : "te6ccgEBAQEABgAACAAAAAI=";
+        const value = "1000000000";
+        const name = isEnlist ? "ENLIST Bob (1 TON)" : "CLAIM Bob";
+
+        messages.push({
+            id: id++,
+            type: "internal",
+            body: body,
+            value: { coins: value, extraCurrencies: null },
+            senderId: 2,
+            name: name
+        });
+    }
+
+    // Сохранение в JSON-файл
+    fs.writeFileSync('tmp/generated_queue.json', JSON.stringify(messages, null, 2));
+    console.log(`Сообщения сохранены в файл tmp/generated_queue.json`);
+}
+
+function setSender(raw: any): Address {
+    if (typeof raw?.senderId === "number" && SENDERS_LIST[raw.senderId]) {
+      return SENDERS_LIST[raw.senderId];
+    }
+    if (typeof raw?.senderId === "number") {
+      SENDERS_LIST[raw.senderId] = randomAddress();
+      return SENDERS_LIST[raw.senderId];
+    }
+
+    return randomAddress();
+}
 
 async function main() {
   const args = process.argv.slice(2);
@@ -865,21 +1271,38 @@ async function main() {
 
   const contractIndex = args.indexOf('--contract');
   if (contractIndex === -1 || contractIndex === args.length - 1) {
-      console.error('Error: --contract flag requires a path argument');
-      printHelp();
+    console.error(`
+      \u001b[31m╭──────────────────────────────────────────────╮
+      \u001b[31m│ \u001b[1;31m✖ Error: Missing required argument           \u001b[0;31m│
+      \u001b[31m╰──────────────────────────────────────────────╯\u001b[0m
+    
+      The \u001b[35m--contract\u001b[0m flag requires a path to your FunC file.
+    
+      \u001b[36mExample:\u001b[0m
+        \u001b[32mtondebug\u001b[0m \u001b[35m--contract\u001b[0m \u001b[33m./contract.fc\u001b[0m
+    
+      Use \u001b[35m--help\u001b[0m for full usage information
+      `);
       return;
   }
 
   // Если не удалось найти контракт
   const contractPath = args[contractIndex + 1];
   if (!fs.existsSync(contractPath)) {
-      console.error(`Contract file not found: ${contractPath}`);
+    console.error(`
+      \u001b[31m╭──────────────────────────────────────────────╮
+      \u001b[31m│ \u001b[1;31m✖ Error: Contract file not found             \u001b[0;31m│
+      \u001b[31m╰──────────────────────────────────────────────╯\u001b[0m
+    
+      Unable to find contract file at: \u001b[33m${contractPath}\u001b[0m
+    `);
       return;
   }
   
   // Фиксируем начальное состояние и очередь
   const initStateIndex = args.indexOf('--init-state');
   const queueIndex = args.indexOf('--queue');
+  const generateIndex = args.indexOf('--generate');
 
 
   // Работа с контрактом
@@ -889,17 +1312,23 @@ async function main() {
     const options: DebugConsoleOptions = {};
     
     // Задаём начальное состояние 
-    
     if (initStateIndex !== -1 && initStateIndex < args.length - 1) {
         const statePath = args[initStateIndex + 1];
         options.initialState = await validateInitState(statePath);
     }
 
     // Инициализиуем очередь
-    
     if (queueIndex !== -1 && queueIndex < args.length - 1) {
         const queuePath = args[queueIndex + 1];
         options.initialQueue = await loadMessageQueue(queuePath);
+    }
+
+    // Генерируем очередь по заданным n1 и n2 (для эксперимента)
+    if (generateIndex !== -1 && generateIndex < args.length - 2) {
+      const n1 = parseInt(args[generateIndex + 1]);
+      const n2 = parseInt(args[generateIndex + 2]);
+      generateQueue(n1, n2);
+      process.exit(0);
     }
 
     // Создаём консоль дебага
@@ -914,20 +1343,23 @@ async function main() {
 // Помощь
 function printHelp(): void {
   console.log(`
-TON Debug Console - Interactive debugger for TON smart contracts
-
-Usage:
-tondebug --contract <path> [--init-state <path>] [--queue <path>] [--help]
-
-Options:
---contract <path>    Path to FunC contract source file
---init-state <path>  Path to initial state JSON file
---queue <path>       Path to initial message queue JSON file
---help               Show this help message
-
-Example:
-tondebug --contract ./my-contract.fc --init-state ./state.json --queue ./messages.json
-`);
+    \u001b[36m╔════════════════════════════════════════════════════╗
+    ║\u001b[1;34m               TON Debug Console                    \u001b[0;36m║
+    ║\u001b[1;34m   Interactive debugger for TON smart contracts     \u001b[0;36m║
+    ╚════════════════════════════════════════════════════╝\u001b[0m
+    
+    \u001b[33mUsage:\u001b[0m
+      \u001b[32mtondebug\u001b[0m \u001b[35m--contract\u001b[0m \u001b[36m<path>\u001b[0m [\u001b[35m--init-state\u001b[0m \u001b[36m<path>\u001b[0m] [\u001b[35m--queue\u001b[0m \u001b[36m<path>\u001b[0m] [\u001b[35m--help\u001b[0m]
+    
+    \u001b[33mOptions:\u001b[0m
+      \u001b[35m--contract\u001b[0m    \u001b[36m<path>\u001b[0m  \u001b[37mPath to FunC contract source file\u001b[0m
+      \u001b[35m--init-state\u001b[0m  \u001b[36m<path>\u001b[0m  \u001b[37mPath to initial state JSON file\u001b[0m
+      \u001b[35m--queue\u001b[0m       \u001b[36m<path>\u001b[0m  \u001b[37mPath to initial message queue JSON file\u001b[0m
+      \u001b[35m--help\u001b[0m                \u001b[37mShow this help message\u001b[0m
+    
+    \u001b[33mExample:\u001b[0m
+      \u001b[32mtondebug\u001b[0m \u001b[35m--contract\u001b[0m \u001b[36m./my-contract.fc\u001b[0m \u001b[35m--init-state\u001b[0m \u001b[36m./state.json\u001b[0m \u001b[35m--queue\u001b[0m \u001b[36m./messages.json\u001b[0m
+    `);
 }
 
 main().catch(console.error);
