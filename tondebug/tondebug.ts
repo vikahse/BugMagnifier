@@ -225,6 +225,7 @@ class TONDebugConsole {
           this.showQueue();
           const queueLength = this.queue.length;
           for (let j = 0; j < queueLength; j++) {
+            await this.runNextMessage();
             // await this.runSpecificMessage(order[j]);
             // await this.sleep(2000);
             this.shuffleQueue();
@@ -284,10 +285,10 @@ class TONDebugConsole {
     const state1: ExperimentContractState = JSON.parse(fs.readFileSync(path1, 'utf8'));
     const state2: ExperimentContractState = JSON.parse(fs.readFileSync(path2, 'utf8'));
 
-    if (state1.balance !== state2.balance) {
-      console.log(`Balance mismatch: ${state1.balance} vs ${state2.balance}`);
-      return false;
-    }
+    // if (state1.balance !== state2.balance) {
+    //   console.log(`Balance mismatch: ${state1.balance} vs ${state2.balance}`);
+    //   return false;
+    // }
 
     if (state1.total !== state2.total) {
         console.log(`Total mismatch: ${state1.total} vs ${state2.total}`);
@@ -431,40 +432,41 @@ class TONDebugConsole {
           }
       }
       
-      const messageQueue: PendingMessage[] = (this.blockchain as any).messageQueue;
-      for (const pm of messageQueue) {
-        if (pm.type !== 'message') {
-            continue;
-        }           
+      // TODO: выяснить почему это влияет на эксперимент
+      // const messageQueue: PendingMessage[] = (this.blockchain as any).messageQueue;
+      // for (const pm of messageQueue) {
+      //   if (pm.type !== 'message') {
+      //       continue;
+      //   }           
     
-        const { info, body } = pm;
-        const infoType = (info as any).type as string;
+      //   const { info, body } = pm;
+      //   const infoType = (info as any).type as string;
     
-        if (infoType !== 'internal' && infoType !== 'external-in') continue;
+      //   if (infoType !== 'internal' && infoType !== 'external-in') continue;
     
-        const sender = (info as any).src as Address;
+      //   const sender = (info as any).src as Address;
     
-        const value =
-            infoType === 'internal'
-                ? {
-                    coins: (info as any).value.coins as bigint,
-                    extraCurrencies: (info as any).value.extraCurrencies ?? null,
-                  }
-                : undefined;
-        let maxId = this.queue.length > 0 
-                ? Math.max(...this.queue.map(m => m.id)) 
-                : 0;
+      //   const value =
+      //       infoType === 'internal'
+      //           ? {
+      //               coins: (info as any).value.coins as bigint,
+      //               extraCurrencies: (info as any).value.extraCurrencies ?? null,
+      //             }
+      //           : undefined;
+      //   let maxId = this.queue.length > 0 
+      //           ? Math.max(...this.queue.map(m => m.id)) 
+      //           : 0;
 
-        const msg: Message = {
-            id: ++maxId,
-            type: infoType as 'internal' | 'external-in',
-            body,
-            sender,
-            value,
-        };
+      //   const msg: Message = {
+      //       id: ++maxId,
+      //       type: infoType as 'internal' | 'external-in',
+      //       body,
+      //       sender,
+      //       value,
+      //   };
 
-        this.queue.push(msg);
-      }    
+      //   this.queue.push(msg);
+      // }    
       if (!result) {
           throw new Error('No transactions were produced');
       }

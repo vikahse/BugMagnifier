@@ -13,6 +13,28 @@
   {
     "id": 2,
     "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAE=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "ENLIST Bob (1 TON)"
+  },
+  {
+    "id": 3,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAE=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "ENLIST Bob (1 TON)"
+  },
+  {
+    "id": 4,
+    "type": "internal",
     "body": "te6ccgEBAQEABgAACAAAAAI=",
     "value": {
       "coins": "1000000000",
@@ -22,7 +44,29 @@
     "name": "CLAIM Bob"
   },
   {
-    "id": 3,
+    "id": 5,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAE=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "ENLIST Bob (1 TON)"
+  },
+  {
+    "id": 6,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAE=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "ENLIST Bob (1 TON)"
+  },
+  {
+    "id": 7,
     "type": "internal",
     "body": "te6ccgEBAQEABgAACAAAAAI=",
     "value": {
@@ -31,5 +75,291 @@
     },
     "senderId": 2,
     "name": "CLAIM Bob"
+  },
+  {
+    "id": 8,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAE=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "ENLIST Bob (1 TON)"
+  },
+  {
+    "id": 9,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAI=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "CLAIM Bob"
+  },
+  {
+    "id": 10,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAE=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "ENLIST Bob (1 TON)"
+  },
+  {
+    "id": 11,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAE=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "ENLIST Bob (1 TON)"
+  },
+  {
+    "id": 12,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAI=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "CLAIM Bob"
+  },
+  {
+    "id": 13,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAI=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "CLAIM Bob"
+  },
+  {
+    "id": 14,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAI=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "CLAIM Bob"
+  },
+  {
+    "id": 15,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAI=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "CLAIM Bob"
+  },
+  {
+    "id": 16,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAE=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "ENLIST Bob (1 TON)"
+  },
+  {
+    "id": 17,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAI=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "CLAIM Bob"
+  },
+  {
+    "id": 18,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAI=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "CLAIM Bob"
+  },
+  {
+    "id": 19,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAI=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "CLAIM Bob"
+  },
+  {
+    "id": 20,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAI=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "CLAIM Bob"
+  },
+  {
+    "id": 21,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAE=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "ENLIST Bob (1 TON)"
+  },
+  {
+    "id": 22,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAE=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "ENLIST Bob (1 TON)"
+  },
+  {
+    "id": 23,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAI=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "CLAIM Bob"
+  },
+  {
+    "id": 24,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAE=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "ENLIST Bob (1 TON)"
+  },
+  {
+    "id": 25,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAE=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "ENLIST Bob (1 TON)"
+  },
+  {
+    "id": 26,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAI=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "CLAIM Bob"
+  },
+  {
+    "id": 27,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAE=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "ENLIST Bob (1 TON)"
+  },
+  {
+    "id": 28,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAE=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "ENLIST Bob (1 TON)"
+  },
+  {
+    "id": 29,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAE=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "ENLIST Bob (1 TON)"
+  },
+  {
+    "id": 30,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAE=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "ENLIST Bob (1 TON)"
+  },
+  {
+    "id": 31,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAI=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "CLAIM Bob"
+  },
+  {
+    "id": 32,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAI=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "CLAIM Bob"
+  },
+  {
+    "id": 33,
+    "type": "internal",
+    "body": "te6ccgEBAQEABgAACAAAAAE=",
+    "value": {
+      "coins": "1000000000",
+      "extraCurrencies": null
+    },
+    "senderId": 2,
+    "name": "ENLIST Bob (1 TON)"
   }
 ]
